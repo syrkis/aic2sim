@@ -6,6 +6,8 @@ from jaxtyping import Array
 from typing import List
 import jax.numpy as jnp
 import parabellum as pb
+from parabellum.types import Config
+from parabellum.env import Env
 
 
 # dataclasses
@@ -42,7 +44,7 @@ class Behavior:  # there will be one per unit (called wihth differnt obs)
 
 @dataclass
 class Compass:  # groups can have targets
-    marks: Array
+    point: Array
     df: Array
     dy: Array
     dx: Array
@@ -67,9 +69,9 @@ class Step:
 @_dataclass
 class Game:
     rng: List[Array]
-    env: pb.env.Env
-    scene: pb.env.Scene
-    step_fn: pb.env.step_fn
+    env: Env
+    cfg: Config
+    # step_fn: pb.env.step_fn
     gps: Compass
     step_seq: List[Step]
     messages: List[dict]

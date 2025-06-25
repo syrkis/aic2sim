@@ -1,1 +1,1 @@
-A move target
+F ( S ( C in_reach enemy |> A shoot random ) |> A move target )

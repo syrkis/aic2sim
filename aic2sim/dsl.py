@@ -22,9 +22,9 @@ node        = fallback / sequence / action / condition
 fallback    = "F" ws "(" ws tree ws ")" ws
 sequence    = "S" ws "(" ws tree ws ")" ws
 action      = "A" ws (move / stand / shoot) ws
-condition   = "C" ws (in_range / in_sight) ws
+condition   = "C" ws (in_reach / in_sight) ws
 
-in_range    = "in_range" ws team
+in_reach    = "in_reach" ws team
 in_sight    = "in_sight" ws team
 move        = "move" ws target
 shoot       = "shoot" ws qualifier
@@ -195,11 +195,11 @@ class BehaviorTreeVisitor(NodeVisitor):
         """Process the qualifier."""
         return node.text
 
-    def visit_in_range(self, node, visited_children):
-        """Process an in_range condition."""
-        # The structure is ["in_range", ws, team]
+    def visit_in_reach(self, node, visited_children):
+        """Process an in_reach condition."""
+        # The structure is ["in_reach", ws, team]
         _, _, team, *_ = visited_children
-        return {"name": "in_range", "team": team}
+        return {"name": "in_reach", "team": team}
 
     def visit_in_sight(self, node, visited_children):
         """Process an in_sight condition."""
