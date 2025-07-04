@@ -62,7 +62,6 @@ def bt_fn(state: Leaf, input: Tuple[Leaf, Tree]) -> Tuple[Leaf, Array]:  # TODO:
     leaf, node = input  # load atomics and bt status
 
     flag = ~jnp.bool(state.jump) & ((node.all & ~state.failure) | (node.one & ~state.success))
-    debug.print("{i}", i=state.jump)
 
     status = jnp.where(flag, leaf.status, state.status)  # update status if we should
 
@@ -71,8 +70,6 @@ def bt_fn(state: Leaf, input: Tuple[Leaf, Tree]) -> Tuple[Leaf, Array]:  # TODO:
     jump = jnp.where(state.jump > 0, state.jump - 1, node.jump) * ((node.all & status) | (node.one & ~status))
 
     leaf = Leaf(action=action, status=status, jump=jump, cond=jnp.array(False))
-    # (node.over & status) | (~node.over & ~status), state.jump - 1, node.jump)  # jumps?
-
     return leaf, flag
 
 

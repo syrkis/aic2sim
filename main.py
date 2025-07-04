@@ -64,4 +64,4 @@ plan = tree.map(lambda *x: jnp.stack(x), *tuple(map(partial(a2s.lxm.str_to_plan,
 obs, state = vmap(partial(env.init, cfg))(key_init)
 err, ((obs, state), (state_seq, action_seq)) = vmap(partial(traj_fn, env, cfg))(obs, state, rng_traj)
 # err.throw()
-pb.utils.svg_fn(cfg, state_seq, action_seq, "/Users/nobr/desk/s3/aic2sim/sims.svg", fps=1, debug=True, targets=points)
+pb.utils.svg_fn(cfg, state_seq, action_seq, "/Users/nobr/desk/s3/aic2sim/sims.svg", fps=4, debug=True, targets=points)
