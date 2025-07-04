@@ -1,7 +1,7 @@
 # imports
 from chex import dataclass
 from dataclasses import dataclass as _dataclass
-from jaxtyping import Array
+from jaxtyping import Array, Bool
 from typing import List
 import jax.numpy as jnp
 import parabellum as pb
@@ -12,7 +12,6 @@ from parabellum.env import Env
 
 SUCCESS = jnp.array(True)
 FAILURE = jnp.array(False)
-INITIAL = jnp.array(-1)
 
 
 # dataclasses
@@ -28,24 +27,17 @@ class Plan:
 @dataclass
 class Leaf:
     action: Action
-    status: Array
-    jump: Array = field(default_factory=lambda: jnp.array(0))
+    status: Bool[Array, "..."]
+    cond: Bool[Array, "..."]
+    jump: Array
 
     @property
     def success(self) -> Array:
-        return self.status == SUCCESS
+        return self.status
 
     @property
     def failure(self) -> Array:
-        return self.status == FAILURE
-
-    @property
-    def initial(self) -> Array:
-        return self.status == INITIAL
-
-    @property
-    def condition(self) -> Array:
-        return self.action.invalid
+        return ~self.status
 
 
 @dataclass

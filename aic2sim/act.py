@@ -17,7 +17,7 @@ from aic2sim.types import Tree, Leaf, Compass, Plan
 # %% Globals
 MOVE = jnp.array(1)
 CAST = jnp.array(2)
-STAY, NONE = Action(kind=jnp.array(1), pos=jnp.zeros(2)), Action(kind=jnp.array(0), pos=jnp.zeros(2))
+STAY, NONE = Action(move=jnp.array(True), pos=jnp.zeros(2)), Action(move=jnp.array(True), pos=jnp.zeros(2))
 
 
 # %% Tree Treefunctions
@@ -43,28 +43,29 @@ def action_fn(env: Env, gps: Compass, rng: Array, obs: Obs, bt: Tree, target: Ar
     rngs = random.split(rng, len(fns))
     calls: Tuple[Leaf, ...] = tuple((f(rng, obs, gps, target) for f, rng in zip(fns, rngs)))
 
-    status = jnp.stack([c.status for c in calls]).take(bt.idxs)
+    status, cond = jnp.stack([c.status for c in calls]).take(bt.idxs), jnp.stack([c.cond for c in calls]).take(bt.idxs)
     action: Action = tree.map(lambda *x: jnp.stack(x).take(bt.idxs, axis=0), *[c.action for c in calls])  # type: ignore
 
-    leafs = Leaf(action=action, status=status, jump=jnp.int32(jnp.zeros(len(fns))))  # jump will not be used
-    init = Leaf(action=NONE, status=jnp.array(False), jump=jnp.int32(jnp.zeros(1)))
+    init = Leaf(action=NONE, status=jnp.array(False), jump=jnp.array(0), cond=jnp.array(False))
+    leafs = Leaf(action=action, status=status, jump=jnp.int32(cond * 0), cond=cond)
 
     state, flag = lax.scan(bt_fn, init, (leafs, bt))
+    debug.print("{i}", i=state.action.cast)
     return state.action
 
 
 def bt_fn(state: Leaf, input: Tuple[Leaf, Tree]) -> Tuple[Leaf, Array]:  # TODO: account for cond versus action leaf
     leaf, node = input  # load atomics and bt status
 
-    flag = state.failure & ~state.jump & ((node.sequence & ~state.failure) | (node.fallback & ~state.success))
+    flag = state.failure & ~jnp.bool(state.jump) & ((node.sequence & ~state.failure) | (node.fallback & ~state.success))
 
     status = jnp.where(flag, leaf.status, state.status)  # update status if we should
 
-    action: Action = lax.cond(flag, lambda: leaf.action, lambda: state.action)  # update action if we should
+    action: Action = lax.cond(flag & ~leaf.cond, lambda: leaf.action, lambda: state.action)  # maybe update action
 
     jump = jnp.where((node.over & status) | (~node.over & ~status), state.jump - 1, node.jump)  # jumps?
 
-    leaf = Leaf(action=action, status=status, jump=jnp.where(flag, jump, leaf.jump))
+    leaf = Leaf(action=action, status=status, jump=jnp.where(flag, jump, leaf.jump), cond=jnp.array(False))
 
     return leaf, flag
 
@@ -73,21 +74,21 @@ def bt_fn(state: Leaf, input: Tuple[Leaf, Tree]) -> Tuple[Leaf, Array]:  # TODO:
 # %% Actions ######################################################################
 ###################################################################################
 def stand_fn(rng: Array, obs: Obs, gps: Compass, target: Array) -> Leaf:
-    return Leaf(action=STAY, status=jnp.array(0))
+    return Leaf(action=STAY, status=jnp.array(True), cond=jnp.array(False), jump=jnp.array(0))
 
 
 def move_fn(rng: Array, obs: Obs, gps: Compass, target: Array) -> Leaf:
     pos = jnp.int32(obs.pos[0])
     pos = -jnp.array((gps.dy[target][*pos], gps.dx[target][*pos])) * obs.speed[0]
-    action = Action(pos=pos, kind=MOVE)
-    return Leaf(action=action, status=jnp.array(True))
+    action = Action(pos=pos, move=jnp.array(True))
+    return Leaf(action=action, status=jnp.array(True), cond=jnp.array(False), jump=jnp.array(0))
 
 
 def attack_fn(rng: Array, obs: Obs, gps: Compass, target: Array) -> Leaf:
     idx = random.choice(rng, a=jnp.arange(obs.enemy.size), p=obs.enemy)
-    action = Action(pos=obs.pos[idx], kind=CAST)
-    status = lax.cond(idx != 0, lambda: 0, lambda: 1)
-    return Leaf(action=action, status=status)
+    action = Action(pos=obs.pos[idx], move=jnp.array(False))
+    # status = lax.cond(idx != 0, lambda: 0, lambda: 1)
+    return Leaf(action=action, status=idx != 0, cond=jnp.array(False), jump=jnp.array(0))
 
 
 ###################################################################################
@@ -95,7 +96,7 @@ def attack_fn(rng: Array, obs: Obs, gps: Compass, target: Array) -> Leaf:
 ###################################################################################
 def enemy_in_reach_fn(rng: Array, obs: Obs, gps: Compass, target: Array) -> Leaf:
     status = (obs.enemy * (obs.dist < obs.reach[0])).sum() > 0
-    return Leaf(status=status, action=NONE)
+    return Leaf(status=status, action=NONE, cond=jnp.array(True), jump=jnp.array(0))
 
 
 # def alive_fn(rng: Array, obs: Obs, gps: Compass, target: Array):

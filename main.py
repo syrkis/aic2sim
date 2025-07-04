@@ -32,7 +32,8 @@ rng, key = random.split(random.PRNGKey(111))
 env, cfg = Env(), Config(sims=1, steps=40)
 
 # points = jnp.int32(random.uniform(rng, (1, 2), minval=0, maxval=cfg.size))
-points = jnp.array([[20, 5]])
+# points = jnp.array([[20, 5]])
+points = jnp.array([[20, 5], [10, 60]])  # random.randint(rng, (3, 2), 0, cfg.size)
 targets = random.randint(rng, (cfg.length,), 0, points.shape[0])
 
 bts, gps = a2s.dsl.bts_fn(bts_str), vmap(partial(a2s.gps.gps_fn, cfg.map))(points)
@@ -46,7 +47,7 @@ def step_fn(env: Env, cfg: Config, carry: Tuple[Obs, State], rng: Array):
     behavior = a2s.act.plan_fn(rng, bts, plan, state)  # perhaps only update plan every m steps
     action = action_fn(rngs, obs, behavior, targets)
     obs, state = env.step(cfg, rng, state, action)
-    checkify.check(~action.invalid, "Action is not valid")  # MUST return a valid action
+    # checkify.check(~action.invalid, "Action is not valid")  # MUST return a valid action
     return (obs, state), (state, action)
 
 
