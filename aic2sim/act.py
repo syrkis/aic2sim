@@ -14,13 +14,17 @@ from parabellum.types import Action, State
 from aic2sim.types import Tree, Leaf, Compass, Plan
 
 
-# %% Globals
-MOVE = jnp.array(1)
-CAST = jnp.array(2)
-STAY, NONE = Action(move=jnp.array(True), pos=jnp.zeros(2)), Action(move=jnp.array(True), pos=jnp.zeros(2))
+# %% Auxilary
+def action_aux(action) -> Leaf:
+    return Leaf(action=action, status=jnp.array(True), cond=jnp.array(False), jump=jnp.array(0))
 
 
-# %% Tree Treefunctions
+def cond_aux(status) -> Leaf:
+    action = Action(move=jnp.array(True), pos=jnp.zeros(2))
+    return Leaf(status=status, cond=jnp.array(False), jump=jnp.array(0), action=action)
+
+
+# %% Tree functions
 def plan_fn(rng: Array, bts, plan: Plan, state: State) -> Tree:  # TODO: Focus
     def move(step):  # all units in focus within 10 meters of target position (fix quadratic)
         return ((jnp.linalg.norm(state.pos - step.coord) * step.units) < 10).all()
@@ -46,7 +50,7 @@ def action_fn(env: Env, gps: Compass, rng: Array, obs: Obs, bt: Tree, target: Ar
     status, cond = jnp.stack([c.status for c in calls]).take(bt.idxs), jnp.stack([c.cond for c in calls]).take(bt.idxs)
     action: Action = tree.map(lambda *x: jnp.stack(x).take(bt.idxs, axis=0), *[c.action for c in calls])  # type: ignore
 
-    init = Leaf(action=NONE, status=jnp.array(False), jump=jnp.array(0), cond=jnp.array(False))
+    init = cond_aux(jnp.array(False))  # Leaf(action=NONE, status=jnp.array(False),
     leafs = Leaf(action=action, status=status, jump=jnp.int32(cond * 0), cond=cond)
 
     state, flag = lax.scan(bt_fn, init, (leafs, bt))
@@ -66,7 +70,6 @@ def bt_fn(state: Leaf, input: Tuple[Leaf, Tree]) -> Tuple[Leaf, Array]:  # TODO:
     jump = jnp.where((node.over & status) | (~node.over & ~status), state.jump - 1, node.jump)  # jumps?
 
     leaf = Leaf(action=action, status=status, jump=jnp.where(flag, jump, leaf.jump), cond=jnp.array(False))
-
     return leaf, flag
 
 
@@ -74,29 +77,28 @@ def bt_fn(state: Leaf, input: Tuple[Leaf, Tree]) -> Tuple[Leaf, Array]:  # TODO:
 # %% Actions ######################################################################
 ###################################################################################
 def stand_fn(rng: Array, obs: Obs, gps: Compass, target: Array) -> Leaf:
-    return Leaf(action=STAY, status=jnp.array(True), cond=jnp.array(False), jump=jnp.array(0))
+    action = Action(pos=jnp.zeros(2, dtype=jnp.int32), move=jnp.array(True))
+    return action_aux(action)
 
 
 def move_fn(rng: Array, obs: Obs, gps: Compass, target: Array) -> Leaf:
-    pos = jnp.int32(obs.pos[0])
-    pos = -jnp.array((gps.dy[target][*pos], gps.dx[target][*pos])) * obs.speed[0]
+    pos = -jnp.array((gps.dy[target][*jnp.int32(obs.pos[0])], gps.dx[target][*jnp.int32(obs.pos[0])])) * obs.speed[0]
     action = Action(pos=pos, move=jnp.array(True))
-    return Leaf(action=action, status=jnp.array(True), cond=jnp.array(False), jump=jnp.array(0))
+    return action_aux(action)
 
 
 def attack_fn(rng: Array, obs: Obs, gps: Compass, target: Array) -> Leaf:
     idx = random.choice(rng, a=jnp.arange(obs.enemy.size), p=obs.enemy)
-    action = Action(pos=obs.pos[idx], move=jnp.array(False))
-    # status = lax.cond(idx != 0, lambda: 0, lambda: 1)
-    return Leaf(action=action, status=idx != 0, cond=jnp.array(False), jump=jnp.array(0))
+    action = Action(pos=obs.pos[idx] * (idx != 0), move=jnp.array(False))
+    debug.print("{i}", i=action.pos)
+    return action_aux(action)
 
 
 ###################################################################################
 # %% Conditions ###################################################################
 ###################################################################################
 def enemy_in_reach_fn(rng: Array, obs: Obs, gps: Compass, target: Array) -> Leaf:
-    status = (obs.enemy * (obs.dist < obs.reach[0])).sum() > 0
-    return Leaf(status=status, action=NONE, cond=jnp.array(True), jump=jnp.array(0))
+    return cond_aux((obs.enemy * (obs.dist < obs.reach[0])).sum() > 0)
 
 
 # def alive_fn(rng: Array, obs: Obs, gps: Compass, target: Array):
