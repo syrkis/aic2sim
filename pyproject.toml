@@ -1,6 +1,6 @@
 [project]
 name = "aic2sim"
-version = "0.0.29"
+version = "0.0.31"
 description = ""
 authors = [{ name = "Noah Syrkis", email = "noah@syrkis.com" }]
 requires-python = ">=3.11,<3.12"
@@ -16,7 +16,6 @@ dependencies = [
     "jax>=0.6.0,<0.7",
     "chex>=0.1.89,<0.2",
     "flax>=0.10.4,<0.11",
-    "aim>=3.27.0,<4",
     "jraph>=0.0.6.dev0,<0.0.7",
     "textx>=4.1.0,<5",
     "parsimonious>=0.10.0,<0.11",
@@ -26,6 +25,7 @@ dependencies = [
     "fastapi[standard]>=0.115.12",
     "ollama>=0.5.1",
     "equinox>=0.11.12",
+    "lovely-jax>=0.1.3",
 ]
 
 [dependency-groups]
@@ -35,7 +35,7 @@ dev = ["parabellum", "esch"]
 
 [tool.uv.sources]
 parabellum = { path = "../parabellum" }
-esch = { path = "../../esch" }
+esch = { path = "../esch" }
 
 [build-system]
 requires = ["hatchling"]

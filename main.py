@@ -61,5 +61,5 @@ key_init, rng_traj = random.split(rng, (2, cfg.sims))
 plan = tree.map(lambda *x: jnp.stack(x), *tuple(map(partial(a2s.lxm.str_to_plan, pln_str, cfg), (-1, 1))))  # type: ignore
 obs, state = vmap(partial(env.init, cfg))(key_init)
 err, ((obs, state), (state_seq, action_seq)) = vmap(partial(traj_fn, env, cfg))(obs, state, rng_traj)
-err.throw()
+# err.throw()
 pb.utils.svg_fn(cfg, state_seq, action_seq, "/Users/nobr/desk/s3/aic2sim/sims.svg", fps=10, debug=True, targets=points)

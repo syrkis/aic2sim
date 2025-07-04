@@ -1,13 +1,18 @@
 # imports
 from chex import dataclass
 from dataclasses import dataclass as _dataclass
-from dataclasses import field
 from jaxtyping import Array
 from typing import List
 import jax.numpy as jnp
 import parabellum as pb
-from parabellum.types import Config
+from dataclasses import field
+from parabellum.types import Config, Action
 from parabellum.env import Env
+
+
+SUCCESS = jnp.array(0)
+FAILURE = jnp.array(1)
+INITIAL = jnp.array(2)
 
 
 # dataclasses
@@ -21,25 +26,50 @@ class Plan:
 
 
 @dataclass
-class Status:
-    status: Array = field(default_factory=lambda: jnp.array(True))  # status
-    active: Array = field(default_factory=lambda: jnp.array(False))  # active
+class Leaf:
+    action: Action
+    status: Array
+    jump: Array = field(default_factory=lambda: jnp.array(0))
 
     @property
-    def success(self):
-        return self.status
+    def success(self) -> Array:
+        return self.status == SUCCESS
 
     @property
-    def failure(self):
-        return ~self.status
+    def failure(self) -> Array:
+        return self.status == FAILURE
+
+    @property
+    def initial(self) -> Array:
+        return self.status == INITIAL
+
+    @property
+    def condition(self) -> Array:
+        return self.action.invalid
 
 
 @dataclass
-class Behavior:  # there will be one per unit (called wihth differnt obs)
-    idx: Array
-    parent: Array
-    prev: Array
-    skip: Array
+class Tree:  # there will be one per unit (called wihth differnt obs)
+    idxs: Array
+    over: Array
+    left: Array
+    jump: Array
+
+    @property
+    def fallback(self) -> Array:
+        return ~self.left
+
+    @property
+    def sequence(self) -> Array:
+        return self.left
+
+    def __repr__(self):
+        return f"""
+idxs: {self.idxs}
+over: {self.over}
+left: {self.left}
+jump: {self.jump}
+"""
 
 
 @dataclass

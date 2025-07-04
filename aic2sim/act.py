@@ -8,27 +8,23 @@ import jax.numpy as jnp
 from jax.experimental import checkify
 from jaxtyping import Array
 from parabellum.env import Env
+from dataclasses import replace
 from parabellum.types import Obs
-from typing import Tuple
+from typing import Tuple, List, Callable
 import equinox as eqx
 from jax import lax, tree, random, debug
 from parabellum.types import Action, State
-from aic2sim.types import Behavior, Status, Compass, Plan
+from aic2sim.types import Tree, Leaf, Compass, Plan, FAILURE, SUCCESS, INITIAL
 
 
 # %% Globals
-CAST = jnp.array(2)
 MOVE = jnp.array(1)
-
-STAND = Action(kind=jnp.array(1), pos=jnp.zeros(2))
-NONE = Action(kind=jnp.array(0), pos=jnp.zeros(2))
-
-SUCCESS = Status(status=jnp.array(True))
-FAILURE = Status(status=jnp.array(False))
+CAST = jnp.array(2)
+STAY, NONE = Action(kind=jnp.array(1), pos=jnp.zeros(2)), Action(kind=jnp.array(0), pos=jnp.zeros(2))
 
 
-# %% Behavior Treefunctions
-def plan_fn(rng: Array, bts, plan: Plan, state: State) -> Behavior:  # TODO: Focus
+# %% Tree Treefunctions
+def plan_fn(rng: Array, bts, plan: Plan, state: State) -> Tree:  # TODO: Focus
     def move(step):  # all units in focus within 10 meters of target position (fix quadratic)
         return ((jnp.linalg.norm(state.pos - step.coord) * step.units) < 10).all()
 
@@ -46,70 +42,71 @@ def plan_fn(rng: Array, bts, plan: Plan, state: State) -> Behavior:  # TODO: Foc
     return tree.map(lambda x: jnp.take(x, idxs, axis=0), bts)  # behavior
 
 
-@eqx.filter_jit
-def fmap(fns, rng: Array, obs: Obs, gps: Compass, target: Array, bt: Behavior):
-    status, action = tuple(zip(*(f(rng, obs, gps, target) for f, rng in zip(fns, random.split(rng, len(fns))))))
-    select = lambda *xs: jnp.stack(xs).take(bt.idx, axis=0)  # noqa # .take() is reodering the bt to leaf order
-    return tree.map(select, *status), tree.map(select, *action)  # type: ignore
+# @eqx.filter_jit
+def fmap(fns, rng: Array, obs: Obs, gps: Compass, target: Array, bt: Tree) -> Leaf:
+    rngs = random.split(rng, len(fns))
+    leafs = [f(rng, obs, gps, target) for f, rng in zip(fns, rngs)]
+    select = lambda *xs: jnp.stack(xs).take(bt.idxs, axis=0)  # noqa # .take() is reodering the bt to leaf order
+    return Leaf(status=tree.map(select, *leafs.status), action=tree.map(select, *leafs.action))  # type: ignore
 
 
-def action_fn(env: Env, gps: Compass, rng, obs: Obs, bt: Behavior, target: Array) -> Action:
-    atom_status, atom_action = fmap(fns, rng, obs, gps, target, bt)
-    init = (Status(), NONE, jnp.array(0))
-    xs = atom_status, atom_action, bt, jnp.arange(len(fns))
-    debug.print("{team}", team=obs.team[0])
-    (_, action, _), flag = lax.scan(bt_fn, init, xs)
-    checkify.check(~action.invalid, "Action is not valid")  # MUST return a valid action
-    debug.print("\n\n——————\n\n")
-    return action
+def action_fn(env: Env, gps: Compass, rng: Array, obs: Obs, bt: Tree, target: Array) -> Action:
+    rngs = random.split(rng, len(fns))
+    calls = tuple((f(rng, obs, gps, target) for f, rng in zip(fns, rngs)))
+    status = jnp.stack([c.status for c in calls]).take(bt.idxs)
+    action = tree.map(lambda *x: jnp.stack(x).take(bt.idxs, axis=0), *[c.action for c in calls])  # type: ignore
+    leafs = Leaf(action=action, status=status, jump=jnp.zeros(len(fns)))  # jump will not be used
+    init = Leaf(action=NONE, status=INITIAL, jump=jnp.array(0))
+    state, flag = lax.scan(bt_fn, init, (leafs, bt))
+    # checkify.check(~leaf.invalid, "Action is not valid")  # MUST return a valid action
+    return state.action
 
 
-def bt_fn(carry: Tuple[Status, Action, Array], input: Tuple[Status, Action, Behavior, Array]):  # this is wrong
-    debug.print("team: {team} \t\t {input}", team=0, input=input[-1])
-    atom_status, atom_action, bt, idx = input  # load atomics and bt status
-    prev_status, prev_action, passing = carry
+def bt_fn(state: Leaf, input: Tuple[Leaf, Tree]) -> Tuple[Leaf, Array]:  # TODO: account for cond versus action leaf
+    leaf, node = input  # load atomics and bt status
 
-    search = prev_status.failure | prev_action.invalid  # almost certainly right
-    checks = (bt.prev & ~prev_status.failure) | (~bt.prev & ~prev_status.success) | (idx == 0)  # probably right
+    look = (state.failure | state.initial) & ~state.jump  # should we even look?
 
-    status = Status(status=jnp.where(search & checks & (passing <= 0), atom_status.status, prev_status.status))
-    action = tree.map(lambda x, y: jnp.where(search & checks & (passing <= 0), x, y), atom_action, prev_action)
+    flag = look & ((node.sequence & ~state.failure) | (node.fallback & ~state.success))  # if we look, should we use?
 
-    flag = (bt.parent & status.failure) | (~bt.parent & status.success)  # update passing
-    passing = jnp.where(search & checks & (passing <= 0), jnp.where(flag, passing - 1, bt.skip), passing)
-    return (status, action, passing), flag
+    status = jnp.where(flag, leaf.status, state.status)  # update status if we should
+
+    action: Action = lax.cond(flag, lambda: leaf.action, lambda: state.action)  # update action if we should
+
+    leaf = Leaf(action=action, status=status)  # make new leaf
+
+    jump = jnp.where((node.over & leaf.success) | (~node.over & leaf.failure), state.jump - 1, node.jump)  # jumps?
+
+    return lax.cond(flag, lambda: replace(leaf, jump=jump), lambda: leaf), flag  # return
 
 
 ###################################################################################
 # %% Actions ######################################################################
 ###################################################################################
-def stand_fn(rng: Array, obs: Obs, gps: Compass, target: Array):
-    return SUCCESS, STAND
+def stand_fn(rng: Array, obs: Obs, gps: Compass, target: Array) -> Leaf:
+    return Leaf(action=STAY, status=jnp.array(0))
 
 
-def move_fn(rng: Array, obs: Obs, gps: Compass, target: Array):
+def move_fn(rng: Array, obs: Obs, gps: Compass, target: Array) -> Leaf:
     pos = jnp.int32(obs.pos[0])
     pos = -jnp.array((gps.dy[target][*pos], gps.dx[target][*pos])) * obs.speed[0]
     action = Action(pos=pos, kind=MOVE)
-    # debug.print("move\tteam: {team}\t\taction: {action}", action=action.pos.round(), team=obs.team[0])
-    return SUCCESS, action
+    return Leaf(action=action, status=SUCCESS)
 
 
-def attack_fn(rng: Array, obs: Obs, gps: Compass, target: Array):
+def attack_fn(rng: Array, obs: Obs, gps: Compass, target: Array) -> Leaf:
     idx = random.choice(rng, a=jnp.arange(obs.enemy.size), p=obs.enemy)
     action = Action(pos=obs.pos[idx], kind=CAST)
-    status = lax.cond(idx != 0, lambda: SUCCESS, lambda: FAILURE)
-    # debug.print("{status} {action}", status=status.status, action=action.pos.round().flatten())
-    return status, action
+    status = lax.cond(idx != 0, lambda: 0, lambda: 1)
+    return Leaf(action=action, status=status)
 
 
 ###################################################################################
 # %% Conditions ###################################################################
 ###################################################################################
-def enemy_in_reach_fn(rng: Array, obs: Obs, gps: Compass, target: Array):
-    status = Status(status=(obs.enemy * (obs.dist < obs.reach[0])).sum() > 0)
-    # debug.print("reach\tteam: {team} \tpos: {pos}", team=obs.team[0], pos=obs.pos.flatten().round())
-    return status, NONE
+def enemy_in_reach_fn(rng: Array, obs: Obs, gps: Compass, target: Array) -> Leaf:
+    status = (obs.enemy * (obs.dist < obs.reach[0])).sum() > 0
+    return Leaf(status=status, action=NONE)
 
 
 # def alive_fn(rng: Array, obs: Obs, gps: Compass, target: Array):
@@ -136,9 +133,9 @@ def enemy_in_reach_fn(rng: Array, obs: Obs, gps: Compass, target: Array):
 ###################################################################################
 tuples = sorted(
     [
+        (("in_reach", "enemy"), enemy_in_reach_fn),
         (("move", "target"), move_fn),
         (("shoot", "random"), attack_fn),
-        (("in_reach", "enemy"), enemy_in_reach_fn),
         # (("in_reach", "ally"), ally_in_reach_fn),
         # (("stand",), stand_fn),
         # (("in_sight", "enemy"), enemy_in_sight_fn),
@@ -149,4 +146,4 @@ tuples = sorted(
     key=lambda x: x[0],
 )
 a2i = {a[0]: idx for idx, a in enumerate(tuples)}
-fns = tuple((a[1] for a in tuples))
+fns = tuple((a[1] for a in tuples))  # type: ignore

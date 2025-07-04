@@ -1,21 +1,21 @@
 # %% dsl.py
-#   btc2sim dsl stuff
+#   domain specific language
 # by: Noah Syrkis
 
 # Imports
 from functools import reduce
 
 import jax.numpy as jnp
-from jax import tree
+from jax import tree, debug
 from parsimonious.grammar import Grammar
 from parsimonious.nodes import NodeVisitor
 
-from aic2sim.types import Behavior
+from aic2sim.types import Tree
 from aic2sim.act import a2i
 
 
 # %% Grammar
-grammar = Grammar("""
+grammar = Grammar(r"""
 tree        = node (sep node)*
 node        = fallback / sequence / action / condition
 
@@ -33,22 +33,23 @@ target      = "target"
 qualifier   = "random"
 team        = "ally" / "enemy"
 
-
 sep         = ws "|>" ws
 ws          = ~r"\s*"
 """)
 
 
 # %% Functions
-def bts_fn(bt_strs) -> Behavior:
-    return tree.map(lambda *bts: jnp.stack(bts), *tuple(map(lambda x: txt2bts(x.strip()), bt_strs.strip().split("\n"))))  # type: ignore
+def bts_fn(bt_strs) -> Tree:
+    bts = tuple(map(lambda x: txt2bts(x.strip()), bt_strs.strip().split("\n")))  # type: ignore
+    bts = tree.map(lambda *x: jnp.stack(x), *bts)  # type: ignore
+    return bts
 
 
-def txt2bts(txt) -> Behavior:
-    node = BehaviorTreeVisitor().visit(grammar.parse(txt))
+def txt2bts(txt) -> Tree:
+    struct = BehaviorTreeVisitor().visit(grammar.parse(txt))
     fns = [idxs_fn, parent_fn, skips_fn, prevs_fn]
-    idx, parent, skip, prev = map(jnp.array, [f(node) for f in fns])
-    bt = Behavior(idx=idx, parent=parent, skip=skip, prev=prev)
+    idxs, over, jump, left = map(jnp.array, [f(struct) for f in fns])
+    bt = Tree(idxs=idxs, over=over, jump=jump, left=left)
     return tree.map(lambda x: jnp.pad(x, (0, len(a2i) - x.size)), bt)
 
 
@@ -83,7 +84,7 @@ def prevs_fn(node):
         if n.get("type") in ["condition", "action"]:
             return [parent_type]  # Leaf node
 
-        node_type = int(n["type"] == "sequence")  # 0 for fallback, 1 for sequence
+        node_type = n["type"] == "sequence"  # 0 for fallback, 1 for sequence
         result = []
         for i, child in enumerate(n["children"]):
             # For first child, use parent's type, for others use current node's type
@@ -101,7 +102,7 @@ def prevs_fn(node):
 def idxs_fn(node):  # CORRECT
     if "children" not in node:
         node = node[node.get("type")]
-        return [a2i[(node,)] if type(node) is str else a2i[tuple(node.values())]]
+        return [a2i[(node,)] if type(node) is str else a2i[tuple(node.values())]]  # type: ignore
     else:
         return reduce(lambda acc, child: acc + idxs_fn(child), node["children"], [])
 

@@ -4,9 +4,9 @@
 // see: https://zed.dev/docs/debugger
 [
   {
-    "label": "Python Active File",
+    "label": "Debug Main (for act.py)",
     "adapter": "Debugpy",
-    "program": "$ZED_FILE",
+    "program": "/Users/nobr/desk/aic2sim/main.py",
     "request": "launch"
   }
 ]
