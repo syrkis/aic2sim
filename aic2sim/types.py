@@ -10,9 +10,9 @@ from parabellum.types import Config, Action
 from parabellum.env import Env
 
 
-SUCCESS = jnp.array(0)
-FAILURE = jnp.array(1)
-INITIAL = jnp.array(2)
+SUCCESS = jnp.array(True)
+FAILURE = jnp.array(False)
+INITIAL = jnp.array(-1)
 
 
 # dataclasses

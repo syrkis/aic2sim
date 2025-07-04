@@ -46,6 +46,7 @@ def step_fn(env: Env, cfg: Config, carry: Tuple[Obs, State], rng: Array):
     behavior = a2s.act.plan_fn(rng, bts, plan, state)  # perhaps only update plan every m steps
     action = action_fn(rngs, obs, behavior, targets)
     obs, state = env.step(cfg, rng, state, action)
+    checkify.check(~action.invalid, "Action is not valid")  # MUST return a valid action
     return (obs, state), (state, action)
 
 

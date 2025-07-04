@@ -5,16 +5,13 @@
 
 # imports
 import jax.numpy as jnp
-from jax.experimental import checkify
 from jaxtyping import Array
 from parabellum.env import Env
-from dataclasses import replace
 from parabellum.types import Obs
-from typing import Tuple, List, Callable
-import equinox as eqx
+from typing import Tuple
 from jax import lax, tree, random, debug
 from parabellum.types import Action, State
-from aic2sim.types import Tree, Leaf, Compass, Plan, FAILURE, SUCCESS, INITIAL
+from aic2sim.types import Tree, Leaf, Compass, Plan
 
 
 # %% Globals
@@ -42,42 +39,34 @@ def plan_fn(rng: Array, bts, plan: Plan, state: State) -> Tree:  # TODO: Focus
     return tree.map(lambda x: jnp.take(x, idxs, axis=0), bts)  # behavior
 
 
-# @eqx.filter_jit
-def fmap(fns, rng: Array, obs: Obs, gps: Compass, target: Array, bt: Tree) -> Leaf:
-    rngs = random.split(rng, len(fns))
-    leafs = [f(rng, obs, gps, target) for f, rng in zip(fns, rngs)]
-    select = lambda *xs: jnp.stack(xs).take(bt.idxs, axis=0)  # noqa # .take() is reodering the bt to leaf order
-    return Leaf(status=tree.map(select, *leafs.status), action=tree.map(select, *leafs.action))  # type: ignore
-
-
 def action_fn(env: Env, gps: Compass, rng: Array, obs: Obs, bt: Tree, target: Array) -> Action:
     rngs = random.split(rng, len(fns))
-    calls = tuple((f(rng, obs, gps, target) for f, rng in zip(fns, rngs)))
+    calls: Tuple[Leaf, ...] = tuple((f(rng, obs, gps, target) for f, rng in zip(fns, rngs)))
+
     status = jnp.stack([c.status for c in calls]).take(bt.idxs)
-    action = tree.map(lambda *x: jnp.stack(x).take(bt.idxs, axis=0), *[c.action for c in calls])  # type: ignore
-    leafs = Leaf(action=action, status=status, jump=jnp.zeros(len(fns)))  # jump will not be used
-    init = Leaf(action=NONE, status=INITIAL, jump=jnp.array(0))
+    action: Action = tree.map(lambda *x: jnp.stack(x).take(bt.idxs, axis=0), *[c.action for c in calls])  # type: ignore
+
+    leafs = Leaf(action=action, status=status, jump=jnp.int32(jnp.zeros(len(fns))))  # jump will not be used
+    init = Leaf(action=NONE, status=jnp.array(False), jump=jnp.int32(jnp.zeros(1)))
+
     state, flag = lax.scan(bt_fn, init, (leafs, bt))
-    # checkify.check(~leaf.invalid, "Action is not valid")  # MUST return a valid action
     return state.action
 
 
 def bt_fn(state: Leaf, input: Tuple[Leaf, Tree]) -> Tuple[Leaf, Array]:  # TODO: account for cond versus action leaf
     leaf, node = input  # load atomics and bt status
 
-    look = (state.failure | state.initial) & ~state.jump  # should we even look?
-
-    flag = look & ((node.sequence & ~state.failure) | (node.fallback & ~state.success))  # if we look, should we use?
+    flag = state.failure & ~state.jump & ((node.sequence & ~state.failure) | (node.fallback & ~state.success))
 
     status = jnp.where(flag, leaf.status, state.status)  # update status if we should
 
     action: Action = lax.cond(flag, lambda: leaf.action, lambda: state.action)  # update action if we should
 
-    leaf = Leaf(action=action, status=status)  # make new leaf
+    jump = jnp.where((node.over & status) | (~node.over & ~status), state.jump - 1, node.jump)  # jumps?
 
-    jump = jnp.where((node.over & leaf.success) | (~node.over & leaf.failure), state.jump - 1, node.jump)  # jumps?
+    leaf = Leaf(action=action, status=status, jump=jnp.where(flag, jump, leaf.jump))
 
-    return lax.cond(flag, lambda: replace(leaf, jump=jump), lambda: leaf), flag  # return
+    return leaf, flag
 
 
 ###################################################################################
@@ -91,7 +80,7 @@ def move_fn(rng: Array, obs: Obs, gps: Compass, target: Array) -> Leaf:
     pos = jnp.int32(obs.pos[0])
     pos = -jnp.array((gps.dy[target][*pos], gps.dx[target][*pos])) * obs.speed[0]
     action = Action(pos=pos, kind=MOVE)
-    return Leaf(action=action, status=SUCCESS)
+    return Leaf(action=action, status=jnp.array(True))
 
 
 def attack_fn(rng: Array, obs: Obs, gps: Compass, target: Array) -> Leaf:
