@@ -32,11 +32,11 @@ class Leaf:
     jump: Array
 
     @property
-    def success(self) -> Array:
+    def success(self) -> Bool[Array, "..."]:
         return self.status
 
     @property
-    def failure(self) -> Array:
+    def failure(self) -> Bool[Array, "..."]:
         return ~self.status
 
 
@@ -48,11 +48,11 @@ class Tree:  # there will be one per unit (called wihth differnt obs)
     jump: Array
 
     @property
-    def fallback(self) -> Array:
+    def one(self) -> Array:
         return ~self.left
 
     @property
-    def sequence(self) -> Array:
+    def all(self) -> Array:
         return self.left
 
     def __repr__(self):
