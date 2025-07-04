@@ -90,9 +90,9 @@ def move_fn(rng: Array, obs: Obs, gps: Compass, target: Array) -> Leaf:
     return action_aux(action)
 
 
-def attack_fn(rng: Array, obs: Obs, gps: Compass, target: Array) -> Leaf:
+def attack_fn(rng: Array, obs: Obs, gps: Compass, target: Array) -> Leaf:  # TODO: why i need to flip pos ::-1?
     idx = random.choice(rng, a=jnp.arange(obs.enemy.size), p=obs.enemy)
-    action = Action(pos=obs.pos[idx] * (idx != 0), move=jnp.array(False))
+    action = Action(pos=jnp.array([1, 1]) * obs.pos[idx][::-1] * (idx != 0), move=jnp.array(False))
     # debug.print("{i}", i=action.pos)
     return action_aux(action)
 
