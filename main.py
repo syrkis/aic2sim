@@ -15,9 +15,7 @@ import nebellum as nb
 
 
 # %% Constants
-c: int = 9
-k: int = 11
-m: int = 20
+c, k, m = 9, 11, 20
 
 # %% Config #####################################################
 with open("data/bts.txt", "r") as f:
@@ -41,16 +39,16 @@ bts, gps = nb.dsl.bts_fn(bts_str), vmap(partial(nb.gps.gps_fn, cfg.map))(points)
 
 
 @jit
-def chamfer_distance(A, B):
-    dists = jnp.linalg.norm(A[:, None, :] - B[None, :, :], axis=2)
+def chamfer_distance(A, B):  # compute distance between two point clouds
+    dists: Array = jnp.linalg.norm(A[:, None, :] - B[None, :, :], axis=2)
     min_dist_A_to_B, min_dist_B_to_A = jnp.min(dists, axis=1), jnp.min(dists, axis=0)
     return jnp.sum(min_dist_A_to_B) + jnp.sum(min_dist_B_to_A)
 
 
 # %% Functions
-def step_fn(env, cfg, behavior, carry: Tuple[Obs, State], rng) -> Tuple[Tuple[Obs, State], Tuple[State, Action]]:
+def step_fn(env: Env, cfg, behavior, carry: Tuple[Obs, State], rng) -> Tuple[Tuple[Obs, State], Tuple[State, Action]]:
     rngs = random.split(rng, cfg.types.size)
-    action = vmap(partial(nb.act.action_fn, env, gps))(rngs, carry[0], behavior, targets)
+    action: Action = vmap(partial(nb.act.action_fn, env, gps))(rngs, carry[0], behavior, targets)
     obs, state = env.step(cfg, rng, carry[1], action)
     return (obs, state), (state, action)
 
@@ -83,7 +81,7 @@ def traj_fn(env: Env, cfg: Config, obs: Obs, state: State, rng: Array) -> Tuple[
 
 # %%
 key_init, rng_traj = random.split(rng, (2, cfg.sims))
-plan = tree.map(lambda *x: jnp.stack(x), *tuple(map(partial(nb.lxm.str_to_plan, pln_str, cfg), (-1, 1))))  # type: ignore
+plan: nb.types.Plan = tree.map(lambda *x: jnp.stack(x), *tuple(map(partial(nb.lxm.str_to_plan, pln_str, cfg), (-1, 1))))  # type: ignore
 obs, state = vmap(partial(env.init, cfg))(key_init)
 (obs, state), (seq, sim_seq) = vmap(partial(traj_fn, env, cfg))(obs, state, rng_traj)
 print(tree.map(jnp.shape, sim_seq))
