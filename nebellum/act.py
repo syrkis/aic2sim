@@ -9,9 +9,9 @@ from jaxtyping import Array
 from parabellum.env import Env
 from parabellum.types import Obs
 from typing import Tuple
-from jax import lax, tree, random, debug
+from jax import lax, tree, random
 from parabellum.types import Action, State
-from aic2sim.types import Tree, Leaf, Compass, Plan
+from nebellum.types import Tree, Leaf, Compass, Plan
 
 
 # %% Auxilary

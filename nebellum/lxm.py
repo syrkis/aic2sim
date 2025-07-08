@@ -1,14 +1,14 @@
 # %% Imports
 import networkx as nx
 import jax.numpy as jnp
-from jax import tree, lax, debug
+from jax import tree, lax, debug, tree
 from jaxtyping import Array
 
 # import equinox as eqx
 import parabellum as pb
 import pydot
-from aic2sim.utils import chess_to_int, alpha_to_int, bt_to_int, nato_to_int
-from aic2sim.types import Plan, Tree
+from nebellum.utils import chess_to_int, alpha_to_int, bt_to_int, nato_to_int
+from nebellum.types import Plan
 # from ollama import chat
 
 

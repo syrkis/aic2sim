@@ -11,7 +11,7 @@ from jax import lax, random, tree, vmap, jit
 from jaxtyping import Array
 from parabellum.env import Env
 from parabellum.types import Config, Obs, State, Action
-import aic2sim as a2s
+import nebellum as nb
 
 
 # %% Constants
@@ -37,7 +37,7 @@ env, cfg = Env(), Config(sims=3, steps=40, knn=5)
 points = jnp.array([[20, 5], [10, 60]])  # random.randint(rng, (3, 2), 0, cfg.size)
 targets = random.randint(rng, (cfg.length,), 0, points.shape[0])
 
-bts, gps = a2s.dsl.bts_fn(bts_str), vmap(partial(a2s.gps.gps_fn, cfg.map))(points)
+bts, gps = nb.dsl.bts_fn(bts_str), vmap(partial(nb.gps.gps_fn, cfg.map))(points)
 
 
 @jit
@@ -50,13 +50,13 @@ def chamfer_distance(A, B):
 # %% Functions
 def step_fn(env, cfg, behavior, carry: Tuple[Obs, State], rng) -> Tuple[Tuple[Obs, State], Tuple[State, Action]]:
     rngs = random.split(rng, cfg.types.size)
-    action = vmap(partial(a2s.act.action_fn, env, gps))(rngs, carry[0], behavior, targets)
+    action = vmap(partial(nb.act.action_fn, env, gps))(rngs, carry[0], behavior, targets)
     obs, state = env.step(cfg, rng, carry[1], action)
     return (obs, state), (state, action)
 
 
 def chunk_fn(env: Env, cfg: Config, carry: Tuple[Obs, State], rng) -> Tuple[Tuple[Obs, State], Tuple[State, State]]:
-    behavior = a2s.act.plan_fn(rng, bts, plan, carry[1])  # perhaps only update plan every m steps
+    behavior = nb.act.plan_fn(rng, bts, plan, carry[1])  # perhaps only update plan every m steps
     rngs = random.split(rng, cfg.steps // c)
     (obs, state), (seq, action) = lax.scan(partial(step_fn, env, cfg, behavior), carry, rngs)
     aux = lambda x: tree.map(lambda leaf: repeat(leaf, f"... -> {k} ..."), x)  # noqa
@@ -83,7 +83,7 @@ def traj_fn(env: Env, cfg: Config, obs: Obs, state: State, rng: Array) -> Tuple[
 
 # %%
 key_init, rng_traj = random.split(rng, (2, cfg.sims))
-plan = tree.map(lambda *x: jnp.stack(x), *tuple(map(partial(a2s.lxm.str_to_plan, pln_str, cfg), (-1, 1))))  # type: ignore
+plan = tree.map(lambda *x: jnp.stack(x), *tuple(map(partial(nb.lxm.str_to_plan, pln_str, cfg), (-1, 1))))  # type: ignore
 obs, state = vmap(partial(env.init, cfg))(key_init)
 (obs, state), (seq, sim_seq) = vmap(partial(traj_fn, env, cfg))(obs, state, rng_traj)
 print(tree.map(jnp.shape, sim_seq))

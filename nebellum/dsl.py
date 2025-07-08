@@ -6,12 +6,12 @@
 from functools import reduce
 
 import jax.numpy as jnp
-from jax import tree, debug
+from jax import tree
 from parsimonious.grammar import Grammar
 from parsimonious.nodes import NodeVisitor
 
-from aic2sim.types import Tree
-from aic2sim.act import a2i
+from nebellum.types import Tree
+from nebellum.act import a2i
 
 
 # %% Grammar

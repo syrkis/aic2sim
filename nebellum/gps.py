@@ -6,9 +6,7 @@
 # Imports
 import jax.numpy as jnp
 import jax.lax as lax
-from jax import vmap
-from functools import partial
-from aic2sim.types import Compass
+from nebellum.types import Compass
 
 
 kernel = jnp.array([[jnp.sqrt(2), 1, jnp.sqrt(2)], [1, 0, 1], [jnp.sqrt(2), 1, jnp.sqrt(2)]]).reshape((1, 1, 3, 3))
