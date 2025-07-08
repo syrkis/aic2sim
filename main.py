@@ -5,16 +5,21 @@
 # Imports
 from functools import partial
 from typing import Tuple
-
 from jax.experimental import checkify
 import jax.numpy as jnp
-from jax import lax, random, tree, vmap
+from einops import repeat
+from jax import lax, random, tree, vmap, jit
 from jaxtyping import Array
 import parabellum as pb
 from parabellum.env import Env
 from parabellum.types import Config, Obs, State
-
 import aic2sim as a2s
+
+
+# %% Constants
+chunks: int = 9
+sims: int = 100
+steps: int = 17
 
 # %% Config #####################################################
 with open("data/bts.txt", "r") as f:
@@ -31,8 +36,6 @@ with open("data/prompt.txt", "r") as f:
 rng, key = random.split(random.PRNGKey(111))
 env, cfg = Env(), Config(sims=1, steps=40)
 
-# points = jnp.int32(random.uniform(rng, (1, 2), minval=0, maxval=cfg.size))
-# points = jnp.array([[20, 5]])
 points = jnp.array([[20, 5], [10, 60]])  # random.randint(rng, (3, 2), 0, cfg.size)
 targets = random.randint(rng, (cfg.length,), 0, points.shape[0])
 
@@ -40,28 +43,55 @@ bts, gps = a2s.dsl.bts_fn(bts_str), vmap(partial(a2s.gps.gps_fn, cfg.map))(point
 action_fn = vmap(partial(a2s.act.action_fn, env, gps))
 
 
+@jit
+def chamfer_distance(A, B):
+    dists = jnp.linalg.norm(A[:, None, :] - B[None, :, :], axis=2)
+    min_dist_A_to_B, min_dist_B_to_A = jnp.min(dists, axis=1), jnp.min(dists, axis=0)
+    return jnp.sum(min_dist_A_to_B) + jnp.sum(min_dist_B_to_A)
+
+
 # %% Functions
 def step_fn(env: Env, cfg: Config, carry: Tuple[Obs, State], rng: Array):
-    obs, state = carry
     rngs = random.split(rng, cfg.length)
-    behavior = a2s.act.plan_fn(rng, bts, plan, state)  # perhaps only update plan every m steps
-    action = action_fn(rngs, obs, behavior, targets)
-    obs, state = env.step(cfg, rng, state, action)
+    behavior = a2s.act.plan_fn(rng, bts, plan, carry[1])  # perhaps only update plan every m steps
+    action = action_fn(rngs, carry[0], behavior, targets)
+    obs, state = env.step(cfg, rng, carry[1], action)
     # checkify.check(~action.invalid, "Action is not valid")  # MUST return a valid action
     return (obs, state), (state, action)
 
 
-# rin a single simulation
+def chunk_fn(env: Env, cfg: Config, carry: Tuple[Obs, State], rng) -> Tuple[Tuple[Obs, State], Tuple[State, State]]:
+    rngs = random.split(rng, cfg.steps // chunks)
+    (obs, state), (seq, action) = lax.scan(partial(step_fn, env, cfg), carry, rngs)
+    aux = lambda x: tree.map(lambda leaf: repeat(leaf, f"... -> {sims} ..."), x)  # noqa
+    init: Tuple[Obs, State] = (aux(encode_fn(cfg, rng, state)[1]), aux(obs))
+    sim_seq = lax.scan(vmap(partial(step_fn, env, cfg)), init, random.split(rng, (steps, sims)))[1][0]
+    return (obs, state), (seq, sim_seq)
+
+
+# run a single simulation
+
+
+def encode_fn(cfg: Config, rng, state: State) -> Tuple[str, State, Array]:
+    mask = random.bernoulli(rng, 0.5, shape=(cfg.length,))
+    mean = jnp.where(~mask[:, None], state.pos, 0).sum(0) / (~mask).sum()
+    pos = jnp.where(mask[:, None], mean.astype(jnp.int32), state.pos)
+    hp = jnp.where(mask, jnp.where(~mask, state.hp, 0).sum() / (~mask).sum(), state.hp)
+    return "", State(pos=pos, hp=hp), mask
+
+
 @checkify.checkify
-def traj_fn(env, cfg, obs, state, rng):
-    rngs = random.split(rng, cfg.steps)
-    return lax.scan(partial(step_fn, env, cfg), (obs, state), rngs)
+def traj_fn(env: Env, cfg: Config, obs: Obs, state: State, rng: Array) -> Tuple[Tuple[Obs, State], Tuple[State, State]]:
+    key, rng = random.split(random.PRNGKey(0))
+    obs, state = env.init(cfg, key)
+    (obs, state), (seq, sim_seq) = lax.scan(partial(chunk_fn, env, cfg), (obs, state), random.split(rng, chunks))
+    return (obs, state), (seq, sim_seq)
 
 
 # %%
 key_init, rng_traj = random.split(rng, (2, cfg.sims))
 plan = tree.map(lambda *x: jnp.stack(x), *tuple(map(partial(a2s.lxm.str_to_plan, pln_str, cfg), (-1, 1))))  # type: ignore
 obs, state = vmap(partial(env.init, cfg))(key_init)
-err, ((obs, state), (state_seq, action_seq)) = vmap(partial(traj_fn, env, cfg))(obs, state, rng_traj)
+err, ((obs, state), (seq, sim_seq)) = vmap(partial(traj_fn, env, cfg))(obs, state, rng_traj)
 # err.throw()
-pb.utils.svg_fn(cfg, state_seq, action_seq, "/Users/nobr/desk/s3/aic2sim/sims.svg", fps=4, debug=True, targets=points)
+# pb.utils.svg_fn(cfg, state_seq, action_seq, "/Users/nobr/desk/s3/aic2sim/sims.svg", fps=4, debug=False, targets=points)
