@@ -15,7 +15,12 @@ import nebellum as nb
 
 
 # %% Constants
-c, k, m = 9, 11, 20
+c = 10  # chunks (how many times to reeval plan)
+k = 11  # number of imagined futures
+m = 12  # number of steps into the future to imagine
+n = 13  # total number of steps in a real sim
+s = 14  # number of parallel real sims to run
+env, cfg = Env(), Config(sims=s, steps=n, knn=5)
 
 # %% Config #####################################################
 with open("data/bts.txt", "r") as f:
@@ -30,7 +35,6 @@ with open("data/prompt.txt", "r") as f:
 
 # %% Constants
 rng, key = random.split(random.PRNGKey(111))
-env, cfg = Env(), Config(sims=3, steps=40, knn=5)
 
 points = jnp.array([[20, 5], [10, 60]])  # random.randint(rng, (3, 2), 0, cfg.size)
 targets = random.randint(rng, (cfg.length,), 0, points.shape[0])
