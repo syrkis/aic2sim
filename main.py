@@ -5,21 +5,19 @@
 # Imports
 from functools import partial
 from typing import Tuple
-from jax.experimental import checkify
 import jax.numpy as jnp
 from einops import repeat
 from jax import lax, random, tree, vmap, jit
 from jaxtyping import Array
-import parabellum as pb
 from parabellum.env import Env
 from parabellum.types import Config, Obs, State, Action
 import aic2sim as a2s
 
 
 # %% Constants
-chunks: int = 9
-sims: int = 11
-steps: int = 17
+c: int = 9
+k: int = 11
+m: int = 20
 
 # %% Config #####################################################
 with open("data/bts.txt", "r") as f:
@@ -59,11 +57,11 @@ def step_fn(env, cfg, behavior, carry: Tuple[Obs, State], rng) -> Tuple[Tuple[Ob
 
 def chunk_fn(env: Env, cfg: Config, carry: Tuple[Obs, State], rng) -> Tuple[Tuple[Obs, State], Tuple[State, State]]:
     behavior = a2s.act.plan_fn(rng, bts, plan, carry[1])  # perhaps only update plan every m steps
-    rngs = random.split(rng, cfg.steps // chunks)
+    rngs = random.split(rng, cfg.steps // c)
     (obs, state), (seq, action) = lax.scan(partial(step_fn, env, cfg, behavior), carry, rngs)
-    aux = lambda x: tree.map(lambda leaf: repeat(leaf, f"... -> {sims} ..."), x)  # noqa
+    aux = lambda x: tree.map(lambda leaf: repeat(leaf, f"... -> {k} ..."), x)  # noqa
     init: Tuple[Obs, State] = aux(obs), aux(encode_fn(cfg, rng, state)[1])
-    sim_seq: State = lax.scan(vmap(partial(step_fn, env, cfg, behavior)), init, random.split(rng, (steps, sims)))[1][0]
+    sim_seq: State = lax.scan(vmap(partial(step_fn, env, cfg, behavior)), init, random.split(rng, (m, k)))[1][0]
     return (obs, state), (seq, sim_seq)
 
 
@@ -79,7 +77,7 @@ def encode_fn(cfg: Config, rng, state: State) -> Tuple[str, State, Array]:
 def traj_fn(env: Env, cfg: Config, obs: Obs, state: State, rng: Array) -> Tuple[Tuple[Obs, State], Tuple[State, State]]:
     key, rng = random.split(random.PRNGKey(0))
     obs, state = env.init(cfg, key)
-    (obs, state), (seq, sim_seq) = lax.scan(partial(chunk_fn, env, cfg), (obs, state), random.split(rng, chunks))
+    (obs, state), (seq, sim_seq) = lax.scan(partial(chunk_fn, env, cfg), (obs, state), random.split(rng, c))
     return (obs, state), (seq, sim_seq)
 
 

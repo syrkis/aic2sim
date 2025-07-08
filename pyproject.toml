@@ -1,5 +1,5 @@
 [project]
-name = "aic2sim"
+name = "nebellum"
 version = "0.0.32"
 description = ""
 authors = [{ name = "Noah Syrkis", email = "desk@syrkis.com" }]
