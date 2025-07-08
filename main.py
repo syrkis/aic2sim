@@ -16,11 +16,11 @@ import nebellum as nb
 
 
 # %% Constants
-c: int = 10  # chunks (how many times to reeval plan)
-k: int = 2  # number of imagined futures
-m: int = 4  # number of steps into the future to imagine
+c: int = 4  # chunks (how many times to reeval plan)
 n: int = 100  # total number of steps in a real sim
-s: int = 2  # number of parallel real sims to run
+k: int = 2  # number of imagined futures
+s: int = 5  # number of parallel real sims to run
+m: int = n // c  # number of steps into the future to imagine
 env, cfg = Env(), Config(sims=s, steps=n, knn=5)
 
 # %% Config #####################################################
@@ -60,13 +60,12 @@ def step_fn(env: Env, cfg, behavior, carry: Tuple[Obs, State], rng) -> Tuple[Tup
 
 def chunk_fn(env: Env, cfg: Config, carry: Tuple[Obs, State], rng):
     behavior = nb.act.plan_fn(rng, bts, plan, carry[1])  # perhaps only update plan every m steps
-    rngs = random.split(rng, cfg.steps // c)
-    (obs, state), seq = lax.scan(partial(step_fn, env, cfg, behavior), carry, rngs)
+    step = partial(step_fn, env, cfg, behavior)
     aux = lambda x: tree.map(lambda leaf: repeat(leaf, f"... -> {k} ..."), x)  # noqa
-    init: Tuple[Obs, State] = aux(obs), aux(encode_fn(cfg, rng, state)[1])
-    rngs = random.split(rng, (m, k))
-    sim_seq: Tuple[State, Action] = lax.scan(vmap(partial(step_fn, env, cfg, behavior)), init, rngs)[1]
-    return (obs, state), (seq, sim_seq)
+    init: Tuple[Obs, State] = aux(carry[0]), aux(encode_fn(cfg, rng, carry[1])[1])
+    sim_seq: Tuple[State, Action] = lax.scan(vmap(step), init, random.split(rng, (m, k)))[1]
+    carry, seq = lax.scan(step, carry, random.split(rng, cfg.steps // c))
+    return carry, (seq, sim_seq)
 
 
 def encode_fn(cfg: Config, rng, state: State) -> Tuple[str, State, Array]:
@@ -86,20 +85,12 @@ def traj_fn(env: Env, cfg: Config, obs: Obs, state: State, rng: Array):
 
 
 def plot_fn(seq, sim_seq):
-    # c: int = 10  # chunks (how many times to reeval plan)
-    # k: int = 2  # number of imagined futures
-    # m: int = 4  # number of steps into the future to imagine
-    # n: int = 100  # total number of steps in a real sim
-    # s: int = 2  # number of parallel real sims to run
     print(tree.map(jnp.shape, sim_seq))
-    # seq = tree.map(lambda x: rearrange(x, "s c m k ... -> s (c m k) ...")[:1], seq)
-    sim_seq = tree.map(lambda x: rearrange(x, "s c m k ... -> s (c m k) ...")[:2], sim_seq)
-    # pb.utils.svg_fn(
-    # cfg, seq[0], seq[1], fname="/Users/nobr/desk/s3/nebellum/sims.svg", fps=4, debug=False, targets=points
-    # )
-    pb.utils.svg_fn(
-        cfg, sim_seq[0], sim_seq[1], fname="/Users/nobr/desk/s3/nebellum/sims_sim.svg", fps=4, targets=points
-    )
+    print(tree.map(jnp.shape, seq))
+    seq = tree.map(lambda x: rearrange(x[0], "c m ... -> 1 (c m) ..."), seq)
+    sim_seq = tree.map(lambda x: rearrange(x[0], "c m k ... -> k (c m) ..."), sim_seq)
+    pb.utils.svg_fn(cfg, seq[0], seq[1], fname="/Users/nobr/desk/s3/nebellum/seqs.svg", fps=2, targets=points)
+    pb.utils.svg_fn(cfg, sim_seq[0], sim_seq[1], fname="/Users/nobr/desk/s3/nebellum/sims.svg", fps=2, targets=points)
 
 
 # %%
