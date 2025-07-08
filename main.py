@@ -11,6 +11,7 @@ from jax import lax, random, tree, vmap, jit
 from jaxtyping import Array
 from parabellum.env import Env
 from parabellum.types import Config, Obs, State, Action
+import parabellum as pb
 import nebellum as nb
 
 
@@ -57,14 +58,14 @@ def step_fn(env: Env, cfg, behavior, carry: Tuple[Obs, State], rng) -> Tuple[Tup
     return (obs, state), (state, action)
 
 
-def chunk_fn(env: Env, cfg: Config, carry: Tuple[Obs, State], rng) -> Tuple[Tuple[Obs, State], Tuple[State, State]]:
+def chunk_fn(env: Env, cfg: Config, carry: Tuple[Obs, State], rng):
     behavior = nb.act.plan_fn(rng, bts, plan, carry[1])  # perhaps only update plan every m steps
     rngs = random.split(rng, cfg.steps // c)
     (obs, state), (seq, action) = lax.scan(partial(step_fn, env, cfg, behavior), carry, rngs)
     aux = lambda x: tree.map(lambda leaf: repeat(leaf, f"... -> {k} ..."), x)  # noqa
     init: Tuple[Obs, State] = aux(obs), aux(encode_fn(cfg, rng, state)[1])
-    sim_seq: State = lax.scan(vmap(partial(step_fn, env, cfg, behavior)), init, random.split(rng, (m, k)))[1][0]
-    return (obs, state), (seq, sim_seq)
+    (_), (sim_seq, sim_action) = lax.scan(vmap(partial(step_fn, env, cfg, behavior)), init, random.split(rng, (m, k)))
+    return (obs, state), ((seq, action), (sim_seq, sim_action))
 
 
 def encode_fn(cfg: Config, rng, state: State) -> Tuple[str, State, Array]:
@@ -76,11 +77,11 @@ def encode_fn(cfg: Config, rng, state: State) -> Tuple[str, State, Array]:
 
 
 # @checkify.checkify
-def traj_fn(env: Env, cfg: Config, obs: Obs, state: State, rng: Array) -> Tuple[Tuple[Obs, State], Tuple[State, State]]:
+def traj_fn(env: Env, cfg: Config, obs: Obs, state: State, rng: Array):
     key, rng = random.split(random.PRNGKey(0))
     obs, state = env.init(cfg, key)
-    (obs, state), (seq, sim_seq) = lax.scan(partial(chunk_fn, env, cfg), (obs, state), random.split(rng, c))
-    return (obs, state), (seq, sim_seq)
+    carry, (seq, sim_seq) = lax.scan(partial(chunk_fn, env, cfg), (obs, state), random.split(rng, c))
+    return carry, (seq, sim_seq)  # , action, sim_seq, sim_action)
 
 
 # %%
@@ -88,5 +89,5 @@ key_init, rng_traj = random.split(rng, (2, cfg.sims))
 plan: nb.types.Plan = tree.map(lambda *x: jnp.stack(x), *tuple(map(partial(nb.lxm.str_to_plan, pln_str, cfg), (-1, 1))))  # type: ignore
 obs, state = vmap(partial(env.init, cfg))(key_init)
 (obs, state), (seq, sim_seq) = vmap(partial(traj_fn, env, cfg))(obs, state, rng_traj)
-print(tree.map(jnp.shape, sim_seq))
-# pb.utils.svg_fn(cfg, state_seq, action_seq, "/Users/nobr/desk/s3/aic2sim/sims.svg", fps=4, debug=False, targets=points)
+print(tree.map(jnp.shape, sim_seq[0]))
+# pb.utils.svg_fn(cfg, seq, fname="/Users/nobr/desk/s3/aic2sim/sims.svg", fps=4, debug=False, targets=points)
