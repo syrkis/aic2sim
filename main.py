@@ -5,14 +5,46 @@
 # Imports
 from functools import partial
 from typing import Tuple
+
+import esch
 import jax.numpy as jnp
-from einops import repeat, rearrange
-from jax import lax, random, tree, vmap, jit
+import numpy as np
+import parabellum as pb
+from einops import rearrange, repeat
+from gemma import gm, peft
+from jax import jit, lax, random, tree, vmap
 from jaxtyping import Array
 from parabellum.env import Env
-from parabellum.types import Config, Obs, State, Action
-import parabellum as pb
+from parabellum.types import Action, Config, Obs, State
+
 import nebellum as nb
+
+# %% Constants
+model = gm.nn.Gemma3_1B()
+tokenizer = gm.text.Gemma3Tokenizer()
+params = gm.ckpts.load_params(gm.ckpts.CheckpointPath.GEMMA3_1B_IT)
+
+print("loaded")
+
+sampler = gm.text.Sampler(model=model, params=params)
+
+prompt = tokenizer.encode("One word to describe Paris: \n\n", add_bos=True)
+prompt = jnp.asarray(prompt)
+
+# Run the model
+out = model.apply(
+    {"params": params},
+    tokens=prompt,
+    return_last_only=True,  # Only predict the last token
+)
+
+
+# Sample a token from the predicted logits
+next_token = random.categorical(random.key(1), out.logits)
+tokenizer.decode(next_token)
+print(out)
+
+exit()
 
 
 # %% Constants
@@ -85,12 +117,22 @@ def traj_fn(env: Env, cfg: Config, obs: Obs, state: State, rng: Array):
 
 
 def plot_fn(seq, sim_seq):
-    print(tree.map(jnp.shape, sim_seq))
-    print(tree.map(jnp.shape, seq))
+    # print(tree.map(jnp.shape, sim_seq))
+    # print(tree.map(jnp.shape, seq))
     seq = tree.map(lambda x: rearrange(x[0], "c m ... -> 1 (c m) ..."), seq)
     sim_seq = tree.map(lambda x: rearrange(x[0], "c m k ... -> k (c m) ..."), sim_seq)
     pb.utils.svg_fn(cfg, seq[0], seq[1], fname="/Users/nobr/desk/s3/nebellum/seqs.svg", fps=2, targets=points)
     pb.utils.svg_fn(cfg, sim_seq[0], sim_seq[1], fname="/Users/nobr/desk/s3/nebellum/sims.svg", fps=2, targets=points)
+    tmp = np.array(
+        vmap(lambda x, y: ((x - y) ** 2).sum())(seq[0].pos[0], sim_seq[0].pos[0])[None, None, ...], dtype=float
+    )
+    tmp /= tmp.max()
+    e = esch.Drawing(w=1 - 1, h=tmp.size - 1, row=1, col=1)
+    esch.grid_fn(e, tmp * 0.8, shape="square")
+    e.dwg.saveas("/Users/nobr/desk/s3/nebellum/diff.svg")
+    # print(rearrange(seq[0].pos, "a b ... -> (a b)"))
+
+    # .shape, sim_seq[1].pos.shape)
 
 
 # %%
