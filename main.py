@@ -6,12 +6,14 @@
 from functools import partial
 from typing import Tuple
 
+from dataclasses import replace
 import esch
 import jax.numpy as jnp
 import numpy as np
 import parabellum as pb
 from einops import rearrange, repeat
-from gemma import gm
+
+# from gemma import gm
 from jax import jit, lax, random, tree, vmap
 from jaxtyping import Array
 from parabellum.env import Env
@@ -21,7 +23,7 @@ import nebellum as nb
 
 
 # %% Constants
-c: int = 2  # chunks (how many times to reeval plan)
+c: int = 3  # chunks (how many times to reeval plan)
 n: int = 100  # total number of steps in a real sim
 k: int = 2  # number of imagined futures
 s: int = 2  # number of parallel real sims to run
@@ -68,28 +70,38 @@ def step_fn(env: Env, cfg, behavior, carry: Tuple[Obs, State], rng) -> Tuple[Tup
 def chunk_fn(env: Env, cfg: Config, carry: Tuple[Obs, State], rng):
     behavior = nb.act.plan_fn(rng, bts, plan, carry[1])  # perhaps only update plan every m steps
     step = partial(step_fn, env, cfg, behavior)
-    aux = lambda x: tree.map(lambda leaf: repeat(leaf, f"... -> {k} ..."), x)  # noqa
-    init: Tuple[Obs, State] = aux(carry[0]), aux(decode_fn(*encode_fn(cfg, rng, carry[1])))
+    init = distort_fn(carry)
     sim_seq: Tuple[State, Action] = lax.scan(vmap(step), init, random.split(rng, (m, k)))[1]
     carry, seq = lax.scan(step, carry, random.split(rng, cfg.steps // c))
     return carry, (seq, sim_seq)
 
 
-def encode_fn(cfg: Config, rng, state: State) -> Tuple[str, State, Array]:
-    mask = random.bernoulli(rng, 0.0, shape=(cfg.length,))
+def distort_fn(carry) -> Tuple[Obs, State]:
+    aux = lambda x: tree.map(lambda leaf: repeat(leaf, f"... -> {k} ..."), x)  # noqa (copy state and obs)
+    obs, state = aux(carry[0]), aux(decode_fn(*encode_fn(rng, carry[1])))  # type: ignore
+    # lets further mask away different parts of the states for the different coppies
+    base_mask = random.bernoulli(rng, 0.1, shape=(state.pos.shape[1]))  # the 10 percent to potentially cover
+    sims_mask = random.bernoulli(rng, 0.5, shape=(k, state.pos.shape[1]))  # the ones to uniquely cover in each sim
+    state = replace(state, pos=state.pos * sims_mask[..., None] * base_mask[None, ..., None])
+    return obs, state
+
+
+def encode_fn(rng, state: State) -> Tuple[str, State, Array]:
+    mask = random.bernoulli(rng, 0.1, shape=(state.pos.shape[0],))
     mean = jnp.where(~mask[:, None], state.pos, 0).sum(0) / (~mask).sum()
     pos = jnp.where(mask[:, None], mean, state.pos)
     hp = jnp.where(mask, jnp.where(~mask, state.hp, 0).sum() / (~mask).sum(), state.hp)
     return "", State(pos=pos, hp=hp), mask
 
+
 def decode_fn(intel: str, state: State, mask: Array) -> State:
     return state
     ## testing GAMMA INSIDE OF JAX STUFF
-    prompt = tokenizer.encode("One word to describe Paris: \n\n", add_bos=True)
-    prompt = jnp.asarray(prompt)
-    out = model.apply({"params": params}, tokens=prompt, return_last_only=True)
-    next_token = random.categorical(random.key(1), out.logits)
-    tokenizer.decode(next_token)
+    # prompt = tokenizer.encode("One word to describe Paris: \n\n", add_bos=True)
+    # prompt = jnp.asarray(prompt)
+    # out = model.apply({"params": params}, tokens=prompt, return_last_only=True)
+    # next_token = random.categorical(random.key(1), out.logits)
+    # tokenizer.decode(next_token)
     ## GAMMA TEST END
 
 
