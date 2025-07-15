@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import numpy as np
 import parabellum as pb
 from einops import rearrange, repeat
-from gemma import gm, peft
+from gemma import gm
 from jax import jit, lax, random, tree, vmap
 from jaxtyping import Array
 from parabellum.env import Env
@@ -23,10 +23,8 @@ import nebellum as nb
 model = gm.nn.Gemma3_1B()
 tokenizer = gm.text.Gemma3Tokenizer()
 params = gm.ckpts.load_params(gm.ckpts.CheckpointPath.GEMMA3_1B_IT)
-
-print("loaded")
-
 sampler = gm.text.Sampler(model=model, params=params)
+
 
 prompt = tokenizer.encode("One word to describe Paris: \n\n", add_bos=True)
 prompt = jnp.asarray(prompt)

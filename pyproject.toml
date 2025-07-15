@@ -19,17 +19,21 @@ dependencies = [
     "jax>=0.6.2; sys_platform != 'linux'",
     "jax[cuda12]>=0.6.2; sys_platform == 'linux'",
     "chex>=0.1.88",
+    "mlxp>=1.0.4",
 ]
-
-
-[tool.uv]
 
 [dependency-groups]
 dev = ["parabellum", "esch"]
 
+[tool.uv]
+
 [tool.uv.sources]
 parabellum = { path = "../parabellum" }
 esch = { path = "../esch" }
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
 
 [tool.ruff]
 line-length = 120
