@@ -26,23 +26,7 @@ params = gm.ckpts.load_params(gm.ckpts.CheckpointPath.GEMMA3_1B_IT)
 sampler = gm.text.Sampler(model=model, params=params)
 
 
-prompt = tokenizer.encode("One word to describe Paris: \n\n", add_bos=True)
-prompt = jnp.asarray(prompt)
 
-# Run the model
-out = model.apply(
-    {"params": params},
-    tokens=prompt,
-    return_last_only=True,  # Only predict the last token
-)
-
-
-# Sample a token from the predicted logits
-next_token = random.categorical(random.key(1), out.logits)
-tokenizer.decode(next_token)
-print(out)
-
-exit()
 
 
 # %% Constants
@@ -103,6 +87,15 @@ def encode_fn(cfg: Config, rng, state: State) -> Tuple[str, State, Array]:
     mean = jnp.where(~mask[:, None], state.pos, 0).sum(0) / (~mask).sum()
     pos = jnp.where(mask[:, None], mean, state.pos)
     hp = jnp.where(mask, jnp.where(~mask, state.hp, 0).sum() / (~mask).sum(), state.hp)
+
+    ## testing GAMMA INSIDE OF JAX STUFF
+    prompt = tokenizer.encode("One word to describe Paris: \n\n", add_bos=True)
+    prompt = jnp.asarray(prompt)
+    out = model.apply({"params": params}, tokens=prompt, return_last_only=True)
+    next_token = random.categorical(random.key(1), out.logits)
+    tokenizer.decode(next_token)
+    ## GAMMA TEST END
+
     return "", State(pos=pos, hp=hp), mask
 
 
