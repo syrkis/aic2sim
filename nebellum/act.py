@@ -69,8 +69,7 @@ def bt_fn(state: Leaf, input: Tuple[Leaf, Tree]) -> Tuple[Leaf, Array]:  # TODO:
 
     jump = jnp.where(state.jump > 0, state.jump - 1, node.jump) * ((node.all & status) | (node.one & ~status))
 
-    leaf = Leaf(action=action, status=status, jump=jump, cond=jnp.array(False))
-    return leaf, flag
+    return Leaf(action=action, status=status, jump=jump, cond=jnp.array(False)), flag
 
 
 ###################################################################################
