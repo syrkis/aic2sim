@@ -20,6 +20,9 @@ dependencies = [
     "jax[cuda12]>=0.6.2; sys_platform == 'linux'",
     "chex>=0.1.88",
     "mlxp>=1.0.4",
+    "nanodl>=0.0.0",
+    "flax>=0.10.7",
+    "optax>=0.2.5",
 ]
 
 [dependency-groups]
